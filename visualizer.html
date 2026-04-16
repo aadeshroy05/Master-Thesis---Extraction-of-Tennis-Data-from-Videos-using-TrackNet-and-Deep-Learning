@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Tennis Bounce Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c;
+        }
+        .court-container {
+            position: relative;
+            background-image: url('https://upload.wikimedia.org/wikipedia/commons/e/e0/Tennis_court_with_lines.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        .dot {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 5px rgba(255, 255, 0, 0.7);
+        }
+        .ball-dot {
+            background-color: yellow;
+        }
+        .player-dot {
+            background-color: #3b82f6; /* Tailwind blue-500 */
+        }
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-white min-h-screen flex items-center justify-center p-4">
+    <div class="bg-gray-700 rounded-xl p-8 shadow-2xl w-full max-w-4xl space-y-6">
+        <h1 class="text-3xl font-bold text-center text-teal-300">Enhanced Tennis Bounce Visualizer</h1>
+        <p class="text-center text-gray-300">
+            Navigate through each bounce to verify the ball and player coordinates, and the bounce time.
+        </p>
+        
+        <div id="court-wrapper" class="w-full flex justify-center">
+            <div id="court-container" class="court-container w-full h-[80vh] max-w-[400px]">
+                <div id="loading-indicator" class="absolute inset-0 flex items-center justify-center bg-gray-700 bg-opacity-75 rounded-xl">
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-center items-center space-x-4">
+            <button id="prev-btn" class="bg-blue-600 text-white p-2 rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Previous
+            </button>
+            <span id="bounce-info" class="text-lg font-medium text-gray-200"></span>
+            <button id="next-btn" class="bg-blue-600 text-white p-2 rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Next
+            </button>
+        </div>
+
+        <div id="details-box" class="bg-gray-600 p-4 rounded-lg text-sm text-gray-200">
+            <p class="font-bold text-teal-300 mb-1">Homography Coordinates (Accurate - Yellow Dot):</p>
+            <p id="homography-coords">X: N/A, Y: N/A</p>
+            <p class="font-bold text-red-400 mt-2 mb-1">Manual Coordinates (Linear Formula Result):</p>
+            <p id="manual-coords">X': N/A, Y': N/A</p>
+        </div>
+
+        <div id="status-message" class="text-center text-red-400 font-semibold mt-4"></div>
+
+    </div>
+
+    <script>
+        const courtContainer = document.getElementById('court-container');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const bounceInfo = document.getElementById('bounce-info');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const statusMessage = document.getElementById('status-message');
+        const homographyCoords = document.getElementById('homography-coords');
+        const manualCoords = document.getElementById('manual-coords');
+
+        let bouncesData = [];
+        let currentBounceIndex = -1;
+
+        async function fetchXml() {
+            try {
+                const response = await fetch('bounces.xml');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}. Make sure 'bounces.xml' is in the same folder.`);
+                }
+                const xmlText = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                
+                if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                    throw new Error("Error parsing XML file. Please check its format.");
+                }
+
+                return xmlDoc;
+
+            } catch (error) {
+                statusMessage.textContent = `Error: ${error.message}`;
+                return null;
+            }
+        }
+
+        async function loadBouncesData() {
+            const xmlDoc = await fetchXml();
+            if (xmlDoc) {
+                const bounces = xmlDoc.getElementsByTagName('Bounce');
+                
+                if (bounces.length === 0) {
+                    statusMessage.textContent = 'No bounces found in the XML file.';
+                    return;
+                }
+
+                let maxX = 0;
+                let maxY = 0;
+                
+                // --- Pass 1: Find Max Coordinates for Scaling ---
+                for (const bounce of bounces) {
+                    const homographyElem = bounce.getElementsByTagName('HomographyMeterCoordinates')[0];
+                    const manualElem = bounce.getElementsByTagName('ManualMeterCoordinates')[0];
+
+                    if (homographyElem) {
+                        // Use Homography values for dynamic scale finding
+                        const hx = parseFloat(homographyElem.getAttribute('x_meter'));
+                        const hy = parseFloat(homographyElem.getAttribute('y_meter'));
+
+                        // We only care about absolute max deviation for centering
+                        const absX = Math.abs(hx);
+                        const absY = Math.abs(hy);
+                        
+                        if (absX > maxX) maxX = absX;
+                        if (absY > maxY) maxY = absY;
+                    }
+                }
+                // Add a buffer and ensure minimum scale if max is 0
+                maxX = Math.max(maxX * 1.1, 6); // Buffer by 10% or min 6m
+                maxY = Math.max(maxY * 1.1, 13); // Buffer by 10% or min 13m
+
+
+                // --- Pass 2: Process Data and Scale for Visualization ---
+                for (const bounce of bounces) {
+                    const homographyElem = bounce.getElementsByTagName('HomographyMeterCoordinates')[0];
+                    const manualElem = bounce.getElementsByTagName('ManualMeterCoordinates')[0];
+                    const playersElem = bounce.getElementsByTagName('Players')[0];
+                    
+                    if (homographyElem) {
+                        const hx = parseFloat(homographyElem.getAttribute('x_meter'));
+                        const hy = parseFloat(homographyElem.getAttribute('y_meter'));
+                        const time = bounce.getAttribute('time_seconds');
+                        
+                        const players = [];
+                        if (playersElem) {
+                            const playerNodes = playersElem.getElementsByTagName('Player');
+                            for (const playerNode of playerNodes) {
+                                const playerCoordsElem = playerNode.getElementsByTagName('MeterCoordinates')[0];
+                                if (playerCoordsElem) {
+                                    players.push({
+                                        x: parseFloat(playerCoordsElem.getAttribute('x_meter')),
+                                        y: parseFloat(playerCoordsElem.getAttribute('y_meter'))
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // Calculate visualization position (Relative to center)
+                        const courtWidth = courtContainer.offsetWidth;
+                        const courtHeight = courtContainer.offsetHeight;
+
+                        // Transform meter coordinate to pixel position in container
+                        const scaledX = (hx / (2 * maxX)) * courtWidth + (courtWidth / 2);
+                        // Y-axis is inverted for screen coordinates (positive Y is down)
+                        const scaledY = (hy / (-2 * maxY)) * courtHeight + (courtHeight / 2);
+                        
+                        // Process Manual Coordinates
+                        let manualXPrime = 'N/A';
+                        let manualYPrime = 'N/A';
+
+                        if (manualElem) {
+                            manualXPrime = parseFloat(manualElem.getAttribute('x_prime')).toFixed(3);
+                            manualYPrime = parseFloat(manualElem.getAttribute('y_prime')).toFixed(3);
+                        }
+
+                        // Process Player Visualization Coordinates
+                        const scaledPlayers = players.map(p => ({
+                            x: (p.x / (2 * maxX)) * courtWidth + (courtWidth / 2),
+                            y: (p.y / (-2 * maxY)) * courtHeight + (courtHeight / 2)
+                        }));
+
+
+                        bouncesData.push({
+                            frame: bounce.getAttribute('frame_number'),
+                            time: time ? parseFloat(time).toFixed(2) : 'N/A',
+                            homography: { x: hx.toFixed(3), y: hy.toFixed(3), scaledX: scaledX, scaledY: scaledY },
+                            manual: { x: manualXPrime, y: manualYPrime },
+                            players: scaledPlayers
+                        });
+                    }
+                }
+                
+                if (bouncesData.length > 0) {
+                    currentBounceIndex = 0;
+                    displayBounce();
+                    nextBtn.disabled = bouncesData.length <= 1;
+                }
+            } else {
+                statusMessage.textContent = 'Failed to load or parse bounces.xml.';
+            }
+            loadingIndicator.classList.add('hidden');
+        }
+
+        function displayBounce() {
+            const bounce = bouncesData[currentBounceIndex];
+            
+            // Clear existing dots
+            const existingDots = document.querySelectorAll('.dot');
+            existingDots.forEach(dot => dot.remove());
+
+            // Display ball dot (Homography Result)
+            const ballDot = document.createElement('div');
+            ballDot.className = 'dot ball-dot';
+            ballDot.style.left = `${bounce.homography.scaledX}px`;
+            ballDot.style.top = `${bounce.homography.scaledY}px`;
+            courtContainer.appendChild(ballDot);
+
+            // Display player dots
+            bounce.players.forEach(player => {
+                const playerDot = document.createElement('div');
+                playerDot.className = 'dot player-dot';
+                playerDot.style.left = `${player.x}px`;
+                playerDot.style.top = `${player.y}px`;
+                courtContainer.appendChild(playerDot);
+            });
+
+            // Update info
+            bounceInfo.textContent = `Bounce ${currentBounceIndex + 1}/${bouncesData.length} | Time: ${bounce.time}s | Frame: ${bounce.frame}`;
+            
+            // Update Coordinate Display
+            homographyCoords.textContent = `X: ${bounce.homography.x} m, Y: ${bounce.homography.y} m`;
+            manualCoords.textContent = `X': ${bounce.manual.x} m, Y': ${bounce.manual.y} m`;
+            
+            // Update button states
+            prevBtn.disabled = currentBounceIndex === 0;
+            nextBtn.disabled = currentBounceIndex === bouncesData.length - 1;
+        }
+
+        prevBtn.addEventListener('click', () => {
+            if (currentBounceIndex > 0) {
+                currentBounceIndex--;
+                displayBounce();
+            }
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentBounceIndex < bouncesData.length - 1) {
+                currentBounceIndex++;
+                displayBounce();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', loadBouncesData);
+    </script>
+</body>
+</html>
