@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+
+# Model weights
+*.pt
+*.pth
+*.h5
+*.cbm
+*.pkl
+
+# Data / output
+*.mp4
+*.avi
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
