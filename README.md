@@ -139,5 +139,5 @@ python src/main.py --path_ball_track_model models/tracknet_model.pt --path_court
 
 \## Author
 
-Aadesh Roy — Master Thesis, 2025
+Aadesh Roy — Master Thesis, 2026
 
