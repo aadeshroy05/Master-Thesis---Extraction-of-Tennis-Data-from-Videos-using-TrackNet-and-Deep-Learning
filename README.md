@@ -108,8 +108,7 @@ curl -L -o models/bounce\_model.cbm https://huggingface.co/aadeshroy05/tennis-tr
 
 ```bash
 
-python src/main.py --video input/your\_match.mp4 --output output/
-
+python src/main.py --path_ball_track_model models/tracknet_model.pt --path_court_model models/court_model.pt --path_bounce_model models/bounce_model.cbm --path_input_video input/your_input_video.mp4 --path_output_video output/result.mp4
 ```
 
 3\. Results will be saved in the `output/` folder
