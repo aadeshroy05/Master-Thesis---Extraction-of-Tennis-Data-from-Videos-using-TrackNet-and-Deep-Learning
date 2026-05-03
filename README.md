@@ -6,6 +6,7 @@ This project extracts structured tennis data (ball trajectory, bounce detection,
 ---
 
 ## Project Structure
+```
 repo/
 ├── src/                  # All Python source code
 ├── input/                # Place your input videos here
@@ -13,7 +14,7 @@ repo/
 ├── models/               # Place downloaded weights here
 ├── requirements.txt
 └── README.md
-
+```
 ---
 
 ## Installation
